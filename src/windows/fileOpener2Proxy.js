@@ -1,13 +1,14 @@
+    function FileOpener2() {
+    }
 
-	var cordova = require('cordova'),
-		fileOpener2 = require('./FileOpener2');
+    FileOpener2.prototype.__schemes = function () {
+        return [
+            { protocol: 'ms-app', getFile: this.__getFileFromApplicationUri },
+            { protocol: 'cdvfile', getFile: this.__getFileFromFileUri }    //protocol cdvfile
+        ]
+    };
 
-	var schemes = [
-        { protocol: 'ms-app', getFile: getFileFromApplicationUri },
-        { protocol: 'cdvfile', getFile: getFileFromFileUri }    //protocol cdvfile
-	]
-
-	function nthIndex(str, pat, n) {
+    FileOpener2.prototype.__nthIndex = function(str, pat, n) {
 	    var L = str.length, i = -1;
 	    while (n-- && i++ < L) {
 	        i = str.indexOf(pat, i);
@@ -16,11 +17,11 @@
 	    return i;
 	}
 
-	function getFileFromApplicationUri(uri) {
+    FileOpener2.prototype.__getFileFromApplicationUri = function(uri) {
 	    /* bad path from a file entry due to the last '//' 
                example: ms-appdata:///local//path/to/file
             */
-	    var index = nthIndex(uri, "//", 3);
+	    var index = this.__nthIndex(uri, "//", 3);
 	    var newUri = uri.substr(0, index) + uri.substr(index + 1);
 
 	    var applicationUri = new Windows.Foundation.Uri(newUri);
@@ -28,12 +29,12 @@
 	    return Windows.Storage.StorageFile.getFileFromApplicationUriAsync(applicationUri);
 	}
 
-	function getFileFromFileUri(uri) {
+    FileOpener2.prototype.__getFileFromFileUri = function(uri) {
 	    /* uri example:
                cdvfile://localhost/persistent|temporary|another-fs-root/path/to/file
             */
-	    var indexFrom = nthIndex(uri, "/", 3) + 1;
-	    var indexTo = nthIndex(uri, "/", 4);
+        var indexFrom = this.__nthIndex(uri, "/", 3) + 1;
+        var indexTo = this.__nthIndex(uri, "/", 4);
 	    var whichFolder = uri.substring(indexFrom, indexTo);
 	    var filePath = uri.substr(indexTo + 1);
 	    var path = "\\" + filePath;
@@ -45,49 +46,51 @@
 	        path = Windows.Storage.ApplicationData.current.temporaryFolder.path + path;
 	    }
 
-	    return getFileFromNativePath(path);
+	    return this.__getFileFromNativePath(path);
 	}
 
-	function getFileFromNativePath(path) {
+    FileOpener2.prototype.__getFileFromNativePath = function(path) {
 	    var nativePath = path.split("/").join("\\");
 
 	    return Windows.Storage.StorageFile.getFileFromPathAsync(nativePath);
 	}
 
-	function getFileLoaderForScheme(path) {
-	    var fileLoader = getFileFromNativePath;
+    FileOpener2.prototype.__getFileLoaderForScheme = function(path) {
+        var fileLoader = this.__getFileFromNativePath;
 
-	    schemes.some(function (scheme) {
-	        return path.indexOf(scheme.protocol) === 0 ? ((fileLoader = scheme.getFile), true) : false;
-	    });
+	    this.__schemes().some(function (scheme) {
+	        return path.indexOf(scheme.protocol) === 0 ? ((fileLoader = scheme.getFile.bind(this)), true) : false;
+	    }.bind(this));
 
 	    return fileLoader;
 	}
 
-	module.exports = {
+    FileOpener2.prototype.open = function (path, mimeType, callbacks) {
 
-	    open: function (successCallback, errorCallback, args) {
-	        
-	        var path = args[0];
-	        
-	        var getFile = getFileLoaderForScheme(path);
-	        
-	        getFile(path).then(function (file) {
-	            var options = new Windows.System.LauncherOptions();
-	            
-	            Windows.System.Launcher.launchFileAsync(file, options).then(function (success) {
-	                successCallback();
-	            }, function (error) {
-	                errorCallback(error);
-	            });
+        var getFile = this.__getFileLoaderForScheme(path);
 
-	        }, function (error) {
-	            console.log("Error while opening the file: "+error);
-		    errorCallback(error);
-	        });
-		}
-		
-	};
+        getFile(path).then(function (file) {
+            var options = new Windows.System.LauncherOptions();
 
-	require("cordova/exec/proxy").add("FileOpener2", module.exports);
+            Windows.System.Launcher.launchFileAsync(file, options).then(function (success) {
+                callbacks.success();
+            }, function (error) {
+                callbacks.error(error);
+            });
 
+        }, function (error) {
+            console.log("Error while opening the file: " + error);
+            callbacks.error(error);
+        });
+    };
+
+    FileOpener2.prototype.install = function () {
+        if (!cordova.plugins) {
+            cordova.plugins = {};
+        }
+        cordova.plugins.fileOpener2 = new FileOpener2();
+        return cordova.plugins.fileOpener2;
+    };
+
+    cordova.addConstructor(FileOpener2.prototype.install);
+    cordova.commandProxy.add("FileOpener2", FileOpener2);
